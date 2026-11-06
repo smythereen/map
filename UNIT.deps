@@ -1,0 +1,5 @@
+# UNIT.deps for map
+# Evidence: #include <sem.h>; LIBRARIES = -lsem -lsys.
+base 1
+require sem
+require sys
