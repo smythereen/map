@@ -141,6 +141,61 @@ sys -> atomic         (header only, no library)
   `testprot.c` has been removed, so nothing in this unit refers to any
   other unit.
 
+## Using this unit from C++
+
+This unit can be used from **C and C++**. Keep the unit's `.c` implementation
+files compiled as C with `gcc`/`CC`; compile your C++ client with `g++`/`CXX`
+and use `g++` for the final mixed-language link. There is no need to rebuild
+the C library as C++.
+
+Base's shared rules recognize C++ product sources named `.cc` and compile
+them with `CXX` and `CXXFLAGS` (for example `make CXX=g++`). `CPP` names
+the preprocessor, not the C++ compiler. The commands below assume the
+headers and libraries have already been installed into `$HOME/cmn` and
+`$HOME/lib`. GNU C++17 on Linux x86-64 is the example target; GNU extensions
+in the shared types/headers are intentional.
+
+`map.h` and `common.h` provide their own `extern "C"` guards, including
+for the exported mapping globals; no user wrapper is needed. C++ requires
+an explicit conversion from the returned `void *` to a typed pointer. Pass
+a mutable path array. The example creates an existing temporary file first,
+avoiding the new-file cache limitation described above.
+
+A mapped region is raw storage, not an automatically constructed C++
+object. Use stable, standard-layout data for cross-process records; do not
+put process-local pointers, `std::string`, virtual objects or owning C++
+containers into a shared file and expect other processes to use them.
+
+Save as `use_map.cc`:
+
+```cpp
+#include <map.h>
+int main() {
+    char path[] = "/tmp/map-cpp-XXXXXX";
+    int fd = mkstemp(path);
+    if (fd < 0) return 1;
+    close(fd);
+    char *p = static_cast<char *>(MapFile2Mem(path, 4096, PROT_WRITE));
+    if (!p) { unlink(path); return 1; }
+    p[0] = 'A';
+    UpdateMap(p, 4096);
+    UnmapAddress(p, 1);
+    unlink(path);
+    return 0;
+}
+```
+
+```sh
+g++ -std=gnu++17 -I"$HOME/cmn" use_map.cc -L"$HOME/lib" -lmap -lsem -lsys -o use_map
+./use_map
+```
+
+The C++ example above was compiled, linked and run on Linux x86-64 using
+Clang 22.1.8 via `zig c++ -std=gnu++17 -nostdlib++`, with GCC 14.2-built C
+objects where needed. It uses no C++ standard-library runtime. The `g++`
+command is the GNU-toolchain form; that driver was not available for this
+smoke check. This is not an exhaustive API or concurrency test.
+
 ## License
 
 The original files are offered under `Apache-2.0 OR GPL-2.0-or-later`;
