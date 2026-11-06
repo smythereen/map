@@ -53,6 +53,16 @@ from writing open/stat/ftruncate/mmap/munmap code in each program.
 `Map(file,-1,delta,PROT_WRITE[|MAP_SHRINK])`. It is **not declared** in
 `map.h`. The trace bit is `MAP_TRC_LVL` (0x08000000).
 
+## Known current limitation
+
+When `Map()` creates a file that did not exist (the `PROT_WRITE` path
+through `Create_File`), it never re-runs `stat` on the new file. The
+cache slot therefore stores status data from the failed `stat`, so the
+inode and size recorded for that first mapping are not the real ones (a
+test trace showed `Inode 0`). The mapping itself works. Inode-based
+lookups (`UnmapFile`, `UnmapInode`, the semaphore key in `Unmap`)
+can miss that slot until the file is mapped again after it exists.
+
 ## Directory and build layout
 
 ```
@@ -109,8 +119,21 @@ UnmapAddress(p, 0);                                 /* logical release, cached *
   `TraceLevel`, `TracePointer`, plus the `common.h` types). Checked by
   relinking: without `-lsem` the link fails with an undefined
   `SemFree`. Without `-lsys` it fails on the `sys` symbols.
-- **Indirect (transitive):** map → sem → sys. sys has no public-unit
-  dependencies, so the full set is {sem, sys}.
+- **Indirect (transitive):** map → sem → sys → atomic. `sys` needs the
+  header-only `atomic` unit (`sys/UNIT.deps`: `require atomic`). Its
+  `sysprt.c` includes `<atomic_32.h>` for `S32_Inc` and
+  `S32_Dec_And_Test`. `atomic` ships no library, because those are
+  inline macros and functions. So atomic is needed to *build* sys, but
+  no `-latomic` is linked. Full build set: {sem, sys, atomic}; link set:
+  `-lmap -lsem -lsys`.
+
+```
+map -> sem            (direct, link)
+map -> sys            (direct, link)
+sem -> sys            (link)
+sys -> atomic         (header only, no library)
+```
+
 - **Makefile `-l` list vs. real use:** `-lsem -lsys` matches what the
   code actually uses, with no unused entries. The shared `rules.mak`
   default `LIBRARIES` also lists `libmsg` and `libfar`, but this
